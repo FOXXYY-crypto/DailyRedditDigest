@@ -1,3 +1,4 @@
 praw
 yagmail
 keyring
+openai

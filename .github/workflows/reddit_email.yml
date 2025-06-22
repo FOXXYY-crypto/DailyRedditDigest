@@ -1,5 +1,4 @@
 name: Daily Reddit Email
-
 on:
   schedule:
     - cron: '30 7 * * *'   # 1 PM IST
@@ -21,6 +20,8 @@ jobs:
 
     - name: Install dependencies
       run: pip install praw yagmail keyring openai
+    - name: Debug - Show installed packages
+      run: pip list
 
     - name: Run script
       env:

@@ -20,7 +20,7 @@ jobs:
         python-version: '3.11'
 
     - name: Install dependencies
-      run: pip install praw yagmail
+      run: pip install praw yagmail keyring openai
 
     - name: Run script
       env:

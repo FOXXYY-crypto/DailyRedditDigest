@@ -1,91 +1,65 @@
 import praw
 import smtplib
+import ssl
 from email.message import EmailMessage
 import os
-import openai
-from datetime import datetime
 
-# Initialize Reddit client
+# --- Reddit credentials from GitHub Actions environment variables ---
 reddit = praw.Reddit(
-    client_id=os.environ['REDDIT_CLIENT_ID'],
-    client_secret=os.environ['REDDIT_CLIENT_SECRET'],
-    user_agent=os.environ['REDDIT_USER_AGENT'],
-    username=os.environ['REDDIT_USERNAME'],
-    password=os.environ['REDDIT_PASSWORD']
+    client_id=os.environ["CLIENT_ID"],
+    client_secret=os.environ["CLIENT_SECRET"],
+    user_agent="script:QuestScraper:v1.0 (by u/{})".format(os.environ["USERNAME"]),
+    username=os.environ["USERNAME"],
+    password=os.environ["PASSWORD"]
 )
 
-# OpenAI API Key
-openai.api_key = os.environ['OPENAI_API_KEY']
-
-# List of subreddits grouped by niche
+# --- Subreddits by niche ---
 subreddits = {
-    "Science": ["askscience"],
-    "Health": ["AskDocs"],
-    "Fitness": ["bodyweightfitness"],
-    "Life": ["LifeProTips"],
-    "Cooking": ["Cooking"],
-    "Tech": ["technology"]
+    "Science": ["askscience", "science", "EverythingScience"],
+    "Health": ["Health", "AskDocs"],
+    "Fitness": ["fitness"],
+    "Cooking": ["Cooking", "EatCheapAndHealthy"],
+    "Tech": ["technology", "Futurology", "singularity"],
+    "Life Tips": ["LifeProTips", "NoStupidQuestions", "TooAfraidToAsk"]
 }
 
-# Generate GPT Answer
-def generate_answer(question):
-    prompt = f"Answer the following question in 1-2 lines: {question}"
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"(Error generating answer: {e})"
-
-# Translate using OpenAI
-def translate(text, language):
-    prompt = f"Translate this into {language}: {text}"
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a translator."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"(Error translating to {language}: {e})"
-
-# Build the email content
-digest = ["🔥 DailyAnswerDose 🔥\n"]
+# --- Collect top questions ---
+email_content = "🔥 Daily Reddit Digest 🔥\n\n"
 for niche, subs in subreddits.items():
-    digest.append(f"🧠 Niche: {niche}\n{'-'*40}")
+    email_content += f"🧠 Niche: {niche}\n" + "-"*40 + "\n"
+    questions = []
     for sub in subs:
         try:
-            posts = [p for p in reddit.subreddit(sub).hot(limit=15) if p.title.endswith("?")]
-            posts.sort(key=lambda p: p.score, reverse=True)
-            for post in posts[:2]:
-                q = post.title
-                en = generate_answer(q)
-                hi = translate(en, "Hindi")
-                mr = translate(en, "Marathi")
-                link = f"https://www.reddit.com{post.permalink}"
-                digest.append(f"\n❓ {q}\n🇬🇧 {en}\n🇮🇳 {hi}\n🇲🇭 {mr}\n👍 {post.score} | 🔗 {link}\n")
+            for post in reddit.subreddit(sub).hot(limit=30):
+                if post.title.endswith("?"):
+                    questions.append((post.title, post.score, sub, f"https://www.reddit.com{post.permalink}"))
         except Exception as e:
-            digest.append(f"⚠️ Error fetching r/{sub}: {e}")
+            email_content += f"❌ Error reading r/{sub}: {e}\n"
 
-# Email setup
+    # Sort and pick top 2
+    questions = sorted(questions, key=lambda x: x[1], reverse=True)[:2]
+    for q in questions:
+        email_content += f"❓ {q[0]}\n👍 {q[1]} upvotes | r/{q[2]}\n🔗 {q[3]}\n\n"
+    email_content += "\n"
+
+# --- Email configuration ---
+EMAIL_ADDRESS = os.environ["EMAIL_ADDRESS"]
+EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
+EMAIL_RECEIVER = os.environ["EMAIL_RECEIVER"]
+EMAIL_HOST = os.environ["EMAIL_HOST"]
+EMAIL_PORT = int(os.environ["EMAIL_PORT"])
+
+# --- Send Email ---
 msg = EmailMessage()
-msg["Subject"] = f"📰 DailyAnswerDose | {datetime.now().strftime('%d %b %Y')}"
-msg["From"] = os.environ['EMAIL_FROM']
-msg["To"] = os.environ['EMAIL_TO']
-msg.set_content("\n\n".join(digest))
+msg.set_content(email_content)
+msg["Subject"] = "🔥 Your Daily Reddit Questions Digest"
+msg["From"] = EMAIL_ADDRESS
+msg["To"] = EMAIL_RECEIVER
 
-# Send email
-with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-    smtp.starttls()
-    smtp.login(os.environ['EMAIL_FROM'], os.environ['EMAIL_PASSWORD'])
-    smtp.send_message(msg)
+context = ssl.create_default_context()
+with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+    server.starttls(context=context)
+    server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+    server.send_message(msg)
 
-print("✅ Email sent with DailyAnswerDose!")
+print("✅ Email sent successfully!")
